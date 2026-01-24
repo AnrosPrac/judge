@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  judge:
+    build: .
+    container_name: lumetrix-judge
+    restart: unless-stopped
+    
+    ports:
+      - "8000:8000"
+    
+    # Security settings
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:unconfined  # Needed for compilation, but can be restricted further
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    # Prevent network access (optional, uncomment if needed)
+    # network_mode: none
+    
+    # Read-only root filesystem (with exceptions for /tmp)
+    read_only: true
+    tmpfs:
+      - /tmp:size=512M,mode=1777
+      - /app/.cache:size=100M,mode=1777
+    
+    # Process limits
+    pids_limit: 100
+    
+    # Environment variables
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
