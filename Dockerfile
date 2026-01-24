@@ -24,6 +24,10 @@ COPY --chown=judge:judge . .
 # Create judge module directory structure
 RUN mkdir -p judge/languages
 
+# Copy .env file if it exists (for local dev)
+# In production, use environment variables
+COPY --chown=judge:judge .env* ./ || true
+
 # Switch to non-root user
 USER judge
 
