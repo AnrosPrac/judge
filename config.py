@@ -1,4 +1,4 @@
-# config.py
+# config_simple.py - Configuration without Redis
 
 from pydantic_settings import BaseSettings
 from typing import Optional
@@ -6,27 +6,29 @@ import secrets
 
 class Settings(BaseSettings):
     """
-    Application settings with environment variable support
+    Application settings - Single service mode
     """
     # API Authentication
-    API_KEY: str = secrets.token_urlsafe(32)  # Generate random key if not set
+    API_KEY: str = secrets.token_urlsafe(32)
     API_KEY_HEADER: str = "X-API-Key"
-    
-    # Optional: Multiple API keys for different services
-    ALLOWED_API_KEYS: Optional[str] = None  # Comma-separated list
+    ALLOWED_API_KEYS: Optional[str] = None
     
     # Service settings
     SERVICE_NAME: str = "Lumetrix Judge Service"
-    VERSION: str = "1.0.0"
+    VERSION: str = "2.0.0-single"
+    
+    # Worker settings (in-process)
+    MAX_CONCURRENT_TASKS: int = 5  # Process 5 submissions at once
+    MAX_QUEUE_SIZE: int = 50  # Max 50 submissions in queue
     
     # Security
     ENABLE_CORS: bool = False
-    ALLOWED_ORIGINS: str = "http://localhost:3000"  # Comma-separated
+    ALLOWED_ORIGINS: str = "http://localhost:3000"
     
     # Rate limiting
     RATE_LIMIT_ENABLED: bool = True
-    RATE_LIMIT_REQUESTS: int = 100  # requests per window
-    RATE_LIMIT_WINDOW: int = 60     # seconds
+    RATE_LIMIT_REQUESTS: int = 100
+    RATE_LIMIT_WINDOW: int = 60
     
     # Logging
     LOG_LEVEL: str = "INFO"
@@ -42,5 +44,4 @@ class Settings(BaseSettings):
             keys.update(k.strip() for k in self.ALLOWED_API_KEYS.split(","))
         return keys
 
-# Global settings instance
 settings = Settings()
