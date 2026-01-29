@@ -1,7 +1,9 @@
-# judge/languages/cpp.py
+# judge/languages/cpp.py - ENHANCED WITH TIMING & MEMORY TRACKING
 
 import subprocess
 import os
+import time
+import resource
 from judge.limits import (
     TIME_LIMIT_SEC, 
     COMPILE_TIME_LIMIT_SEC,
@@ -61,11 +63,22 @@ def compile(source_path: str, workdir: str):
 
 def run(binary_path: str, input_data: str, workdir: str):
     """
-    Run compiled C++ binary in sandboxed environment
+    Run compiled C++ binary with execution time and memory tracking
+    
+    Returns:
+        dict with keys:
+        - ok: bool
+        - verdict: str
+        - output: str (if successful)
+        - execution_time_ms: float
+        - memory_used_mb: float
     """
     try:
         max_output_bytes = MAX_OUTPUT_SIZE_KB * 1024
 
+        # Start timing
+        start_time = time.perf_counter()
+        
         proc = subprocess.run(
             [binary_path],
             input=input_data,
@@ -75,35 +88,55 @@ def run(binary_path: str, input_data: str, workdir: str):
             text=True,
             cwd=workdir
         )
+        
+        # Calculate execution time
+        execution_time_ms = (time.perf_counter() - start_time) * 1000
+        
+        # Get memory usage
+        try:
+            usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+            memory_used_mb = usage.ru_maxrss / 1024  # KB to MB (Linux)
+        except:
+            memory_used_mb = 0.0
 
         output = proc.stdout
         
         if len(output.encode('utf-8')) > max_output_bytes:
             return {
                 "ok": False,
-                "verdict": "Output Limit Exceeded"
+                "verdict": "Output Limit Exceeded",
+                "execution_time_ms": execution_time_ms,
+                "memory_used_mb": memory_used_mb
             }
 
         if proc.returncode != 0:
             return {
                 "ok": False,
-                "verdict": "Runtime Error"
+                "verdict": "Runtime Error",
+                "execution_time_ms": execution_time_ms,
+                "memory_used_mb": memory_used_mb
             }
 
         return {
             "ok": True,
-            "output": output.strip()
+            "output": output.strip(),
+            "execution_time_ms": round(execution_time_ms, 2),
+            "memory_used_mb": round(memory_used_mb, 2)
         }
 
     except subprocess.TimeoutExpired:
         logger.info("C++ execution timeout")
         return {
             "ok": False,
-            "verdict": "Time Limit Exceeded"
+            "verdict": "Time Limit Exceeded",
+            "execution_time_ms": TIME_LIMIT_SEC * 1000,
+            "memory_used_mb": 0.0
         }
     except Exception as e:
         logger.error(f"C++ execution error: {e}")
         return {
             "ok": False,
-            "verdict": "Runtime Error"
+            "verdict": "Runtime Error",
+            "execution_time_ms": 0.0,
+            "memory_used_mb": 0.0
         }
