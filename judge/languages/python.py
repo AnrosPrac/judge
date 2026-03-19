@@ -91,6 +91,13 @@ def compile(source_path: str, workdir: str):
         except _ast.SyntaxError:
             pass  # Already caught by py_compile above
 
+        # 3. Write the runner wrapper once here — while workdir is still writable.
+        #    run() will reuse this same file for every test case.
+        wrapper_path = os.path.join(workdir, "_runner.py")
+        with open(wrapper_path, "w", encoding="utf-8") as f:
+            f.write(_WRAPPER_TEMPLATE.format(source_path=source_path))
+        os.chmod(wrapper_path, 0o500)   # read+execute, not writable
+
         return True, "", source_path
 
     except subprocess.TimeoutExpired:
@@ -133,6 +140,7 @@ finally:
 def run(source_path: str, input_data: str, workdir: str) -> dict:
     """
     Execute Python source for one test case with memory tracking and isolation.
+    The _runner.py wrapper is written once during compile() and reused here.
 
     Returns dict with:
         ok               : bool
@@ -142,14 +150,10 @@ def run(source_path: str, input_data: str, workdir: str) -> dict:
         execution_time_ms: float
         memory_used_mb   : float
     """
+    # Wrapper was already written during compile() — just reference it
     wrapper_path = os.path.join(workdir, "_runner.py")
 
     try:
-        # Write wrapper (fresh each call — workdir is per-submission)
-        with open(wrapper_path, "w", encoding="utf-8") as f:
-            f.write(_WRAPPER_TEMPLATE.format(source_path=source_path))
-        os.chmod(wrapper_path, 0o400)
-
         start_wall = time.perf_counter()
 
         proc = subprocess.run(
