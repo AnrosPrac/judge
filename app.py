@@ -66,8 +66,8 @@ class JudgeRequest(BaseModel):
     
     @validator('testcases')
     def validate_testcases(cls, v):
-        if len(v) < 1 or len(v) > 10:
-            raise ValueError('Must have 1-10 test cases')
+        if len(v) < 1 or len(v) > 20:
+            raise ValueError('Must have 1-20 test cases')
         return v
     
     @validator('sourceCode')
