@@ -47,6 +47,17 @@ def _verdict_rank(v: str) -> int:
         return len(_VERDICT_PRIORITY)
 
 
+# ─── Normalise text ───────────────────────────────────────────────────────────
+
+def _normalise(text: str) -> str:
+    """
+    Strip and normalise line endings.
+    Handles \\r\\n (Windows), \\r (old Mac), \\n (Unix).
+    Prevents false Wrong Answers from line ending mismatches.
+    """
+    return text.strip().replace("\r\n", "\n").replace("\r", "\n")
+
+
 # ─── Main entry point ─────────────────────────────────────────────────────────
 
 def judge_submission(source_code: str, testcases: list, language: str) -> dict:
@@ -124,10 +135,12 @@ def judge_submission(source_code: str, testcases: list, language: str) -> dict:
         overall_verdict  = "Accepted"   # Optimistic — downgraded on failures
 
         for idx, tc in enumerate(testcases):
-            tc_id = idx + 1
+            tc_id    = idx + 1
+            tc_input = _normalise(tc["input"])   # normalise input line endings
+
             logger.debug(f"Running test case {tc_id}/{len(testcases)}")
 
-            result = lang["module"].run(executable, tc["input"], workdir)
+            result = lang["module"].run(executable, tc_input, workdir)
 
             exec_ms  = result.get("execution_time_ms", 0.0)
             mem_mb   = result.get("memory_used_mb",   0.0)
@@ -159,8 +172,9 @@ def judge_submission(source_code: str, testcases: list, language: str) -> dict:
 
             else:
                 # ── Check correctness ───────────────────────────────────────
-                expected = tc["output"].strip()
-                actual   = result["output"].strip()
+                # normalise both sides — prevents false WA from \r\n vs \n
+                expected = _normalise(tc["output"])
+                actual   = _normalise(result["output"])
 
                 if actual == expected:
                     passed += 1
