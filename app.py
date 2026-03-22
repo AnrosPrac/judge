@@ -74,11 +74,15 @@ class JudgeRequest(BaseModel):
     def validate_source(cls, v):
         if len(v.encode('utf-8')) > 100 * 1024:
             raise ValueError('Source code too large')
-        dangerous_patterns = ['__import__', 'eval(', 'exec(', 'compile(']
+        # Only block truly dangerous runtime execution patterns
+        # __import__ is NOT blocked here — the Python sandbox handles it via
+        # the _BLOCKED_IMPORTS static AST check in python.py compile()
+        dangerous_patterns = ['eval(', 'exec(']
         v_lower = v.lower()
         for pattern in dangerous_patterns:
             if pattern in v_lower:
                 raise ValueError(f'Potentially dangerous code pattern detected: {pattern}')
+        return v
         return v
 
 @app.exception_handler(Exception)
@@ -124,7 +128,14 @@ async def process_queue():
                 tasks[task_id]["status"] = "failed"
                 tasks[task_id]["result"] = {
                     "verdict": "System Error",
-                    "error": str(e)
+                    "passed":  0,
+                    "total":   0,
+                    "test_results": [],
+                    "avg_execution_time_ms": 0.0,
+                    "max_execution_time_ms": 0.0,
+                    "avg_memory_mb": 0.0,
+                    "max_memory_mb": 0.0,
+                    "error": str(e),
                 }
             
             # Mark task as done
