@@ -18,8 +18,9 @@ class Settings(BaseSettings):
     VERSION: str = "2.0.0-single"
     
     # Worker settings (in-process)
-    MAX_CONCURRENT_TASKS: int = 5  # Process 5 submissions at once
-    MAX_QUEUE_SIZE: int = 50  # Max 50 submissions in queue
+    MAX_CONCURRENT_TASKS: int = 10   # Judge workers (raise to cpu_cores×2 for your server)
+    MAX_RUN_CONCURRENT: int = 5      # Separate pool for /run (online compiler)
+    MAX_QUEUE_SIZE: int = 100        # Max pending judge submissions in queue
     
     # Security
     ENABLE_CORS: bool = False

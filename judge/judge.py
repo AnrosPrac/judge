@@ -198,7 +198,7 @@ def judge_submission(source_code: str, testcases: list, language: str) -> dict:
                         "test_case_id":      tc_id,
                         "passed":            False,
                         "verdict":           "Wrong Answer",
-                        "error":             None,
+                        "error":             f"Expected:\n{_safe_preview(expected)}\n\nGot:\n{_safe_preview(actual)}",
                         "output":            _safe_preview(actual),
                         "expected":          _safe_preview(expected),
                         "execution_time_ms": exec_ms,
@@ -237,6 +237,77 @@ def judge_submission(source_code: str, testcases: list, language: str) -> dict:
     except Exception as e:
         logger.error(f"Judge system exception: {e}", exc_info=True)
         return _system_error(str(e))
+
+    finally:
+        if workdir:
+            cleanup_workdir(workdir)
+
+
+# ─── Online compiler (no testcase comparison) ────────────────────────────────
+
+def run_submission(source_code: str, language: str, stdin: str = "") -> dict:
+    """
+    Compile and run code with raw stdin, return stdout/stderr directly.
+    No verdict comparison — used by the /run (online compiler) endpoint.
+
+    Returns:
+        {
+            stdout           : str,
+            stderr           : str,
+            execution_time_ms: float,
+            memory_mb        : float,
+            exit_code        : int
+        }
+    """
+    if language not in LANGUAGES:
+        return {"stdout": "", "stderr": f"Unsupported language: {language}", "execution_time_ms": 0.0, "memory_mb": 0.0, "exit_code": 1}
+
+    source_bytes = source_code.encode("utf-8")
+    if len(source_bytes) > MAX_SOURCE_SIZE_KB * 1024:
+        return {"stdout": "", "stderr": f"Source code too large (max {MAX_SOURCE_SIZE_KB} KB).", "execution_time_ms": 0.0, "memory_mb": 0.0, "exit_code": 1}
+
+    lang    = LANGUAGES[language]
+    workdir = None
+
+    try:
+        workdir     = create_workdir()
+        source_path = write_source(workdir, lang["source_name"], source_code)
+
+        compiled, compile_error, executable = lang["module"].compile(source_path, workdir)
+        if not compiled:
+            return {
+                "stdout": "",
+                "stderr": compile_error,
+                "execution_time_ms": 0.0,
+                "memory_mb": 0.0,
+                "exit_code": 1,
+            }
+
+        result = lang["module"].run(executable, _normalise(stdin), workdir)
+
+        if result["ok"]:
+            return {
+                "stdout": result["output"],
+                "stderr": "",
+                "execution_time_ms": result["execution_time_ms"],
+                "memory_mb": result["memory_used_mb"],
+                "exit_code": 0,
+            }
+        else:
+            # For TLE/MLE surface a clean message; for Runtime Error surface the actual error
+            verdict = result.get("verdict", "Runtime Error")
+            stderr_msg = result.get("error") or verdict
+            return {
+                "stdout": "",
+                "stderr": stderr_msg,
+                "execution_time_ms": result["execution_time_ms"],
+                "memory_mb": result["memory_used_mb"],
+                "exit_code": 1,
+            }
+
+    except Exception as e:
+        logger.error(f"run_submission exception: {e}", exc_info=True)
+        return {"stdout": "", "stderr": str(e), "execution_time_ms": 0.0, "memory_mb": 0.0, "exit_code": 1}
 
     finally:
         if workdir:

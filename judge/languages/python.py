@@ -67,13 +67,19 @@ def compile(source_path: str, workdir: str):
             error = proc.stderr or "Syntax error"
             return False, clean_error_message(error, MAX_STDERR_BYTES), None
 
-        # 2. Static import check — parse AST without executing
+        # 2. Static AST check — blocked imports and dangerous builtins
         import ast as _ast
+        _BLOCKED_BUILTINS = frozenset([
+            "__import__", "open", "eval", "exec", "compile",
+            "vars", "dir", "getattr", "setattr", "delattr",
+            "globals", "locals",
+        ])
         try:
             with open(source_path, "r", encoding="utf-8") as f:
                 source = f.read()
             tree = _ast.parse(source)
             for node in _ast.walk(tree):
+                # Block dangerous imports
                 if isinstance(node, (_ast.Import, _ast.ImportFrom)):
                     names = (
                         [alias.name for alias in node.names]
@@ -88,6 +94,24 @@ def compile(source_path: str, workdir: str):
                                 f"Import of '{root}' is not allowed in the sandbox.",
                                 None,
                             )
+                # Block dangerous builtin calls by name
+                if isinstance(node, _ast.Call):
+                    if isinstance(node.func, _ast.Name) and node.func.id in _BLOCKED_BUILTINS:
+                        return (
+                            False,
+                            f"Use of '{node.func.id}' is not allowed in the sandbox.",
+                            None,
+                        )
+                # Block attribute access used for class traversal (__subclasses__, etc.)
+                if isinstance(node, _ast.Attribute):
+                    if node.attr.startswith("__") and node.attr.endswith("__") and node.attr in (
+                        "__subclasses__", "__bases__", "__mro__", "__globals__", "__builtins__",
+                    ):
+                        return (
+                            False,
+                            f"Access to '{node.attr}' is not allowed in the sandbox.",
+                            None,
+                        )
         except _ast.SyntaxError:
             pass  # Already caught by py_compile above
 
