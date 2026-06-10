@@ -6,6 +6,7 @@ from judge.limits import MAX_TESTCASES, MAX_SOURCE_SIZE_KB
 from judge.languages import c as c_lang
 from judge.languages import cpp as cpp_lang
 from judge.languages import python as python_lang
+from judge.languages import java as java_lang
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,10 @@ LANGUAGES = {
     "python": {
         "module":      python_lang,
         "source_name": "main.py",
+    },
+    "java": {
+        "module":      java_lang,
+        "source_name": "Main.java",
     },
 }
 

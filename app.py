@@ -59,7 +59,7 @@ class JudgeRequest(BaseModel):
     
     @validator('language')
     def validate_language(cls, v):
-        allowed = ['c', 'cpp', 'python']
+        allowed = ['c', 'cpp', 'python', 'java']
         if v.lower() not in allowed:
             raise ValueError(f'Language must be one of: {allowed}')
         return v.lower()
@@ -254,7 +254,7 @@ async def root():
     return {
         "service": settings.SERVICE_NAME,
         "version": settings.VERSION,
-        "supported_languages": ["c", "cpp", "python"],
+        "supported_languages": ["c", "cpp", "python", "java"],
         "status": "online",
         "queue_size": task_queue.qsize()
     }
