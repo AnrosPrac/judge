@@ -197,8 +197,8 @@ def run(source_path: str, input_data: str, workdir: str) -> dict:
             env={
                 "PYTHONDONTWRITEBYTECODE": "1",
                 "PYTHONUNBUFFERED": "1",
-                "PYTHONHASHSEED": "0",      # Deterministic hashing
-                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "PYTHONHASHSEED": "0",
+                "PATH": "/usr/bin:/bin:/usr/local/bin",
             },
         )
 

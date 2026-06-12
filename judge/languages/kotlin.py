@@ -1,4 +1,5 @@
-# judge/languages/java.py
+# judge/languages/kotlin.py
+# Compile: kotlinc → main.jar  |  Run: java -jar main.jar
 
 import subprocess
 import os
@@ -18,10 +19,9 @@ from judge.utils import clean_error_message
 
 logger = logging.getLogger(__name__)
 
-SOURCE_FILE = "Main.java"
-CLASS_FILE  = "Main"
+SOURCE_FILE = "main.kt"
+JAR_FILE    = "main.jar"
 
-# JVM memory cap derived from the global limit (convert bytes → MB, leave headroom for JVM overhead)
 _JVM_HEAP_MB = max(64, (MEMORY_LIMIT_BYTES // (1024 * 1024)) - 64)
 
 
@@ -29,14 +29,16 @@ _JVM_HEAP_MB = max(64, (MEMORY_LIMIT_BYTES // (1024 * 1024)) - 64)
 
 def compile(source_path: str, workdir: str):
     """
-    Compile Java source with javac.
+    Compile Kotlin source to a self-contained JAR with kotlinc.
 
     Returns:
-        (success: bool, error_message: str, class_name: str | None)
+        (success: bool, error_message: str, jar_path: str | None)
     """
+    jar_path = os.path.join(workdir, JAR_FILE)
+
     try:
         proc = subprocess.run(
-            ["javac", "-encoding", "UTF-8", source_path],
+            ["kotlinc", source_path, "-include-runtime", "-d", jar_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=COMPILE_TIME_LIMIT_SEC,
@@ -45,48 +47,37 @@ def compile(source_path: str, workdir: str):
         )
 
         if proc.returncode != 0:
-            error = proc.stderr or proc.stdout or "Unknown compilation error"
+            error = proc.stderr or proc.stdout or "Unknown Kotlin compilation error"
             return False, clean_error_message(error, MAX_COMPILE_OUTPUT_KB * 1024), None
 
-        class_file = os.path.join(workdir, f"{CLASS_FILE}.class")
-        if not os.path.exists(class_file):
-            return False, "Compiler produced no .class output.", None
+        if not os.path.exists(jar_path):
+            return False, "Kotlin compiler produced no JAR output.", None
 
-        return True, "", CLASS_FILE
+        return True, "", jar_path
 
     except subprocess.TimeoutExpired:
-        logger.warning("Java compilation timed out")
+        logger.warning("Kotlin compilation timed out")
         return False, "Compilation timed out. Simplify your code.", None
     except FileNotFoundError:
-        logger.error("javac not found on system")
-        return False, "Java compiler (javac) is not available.", None
+        logger.error("kotlinc not found on system")
+        return False, "Kotlin compiler (kotlinc) is not available.", None
     except Exception as e:
-        logger.error(f"Java compilation unexpected error: {e}", exc_info=True)
+        logger.error(f"Kotlin compile error: {e}", exc_info=True)
         return False, f"Compilation failed: {str(e)}", None
 
 
-# ─── Execution ────────────────────────────────────────────────────────────────
+# ─── Security preexec ─────────────────────────────────────────────────────────
 
 def _apply_child_limits():
-    # RLIMIT_AS intentionally omitted for JVM (large virtual address space at startup);
-    # heap is capped via -Xmx instead. RLIMIT_AS would kill the JVM before it starts.
+    # RLIMIT_AS intentionally omitted for JVM — see java.py for explanation.
     resource.setrlimit(resource.RLIMIT_FSIZE, (256 * 1024 * 1024, 256 * 1024 * 1024))
     resource.setrlimit(resource.RLIMIT_NPROC, (MAX_PIDS,           MAX_PIDS))
     resource.setrlimit(resource.RLIMIT_CPU,   (TIME_LIMIT_SEC + 2, TIME_LIMIT_SEC + 2))
 
 
-def run(class_name: str, input_data: str, workdir: str) -> dict:
-    """
-    Execute compiled Java class for one test case.
+# ─── Execution ────────────────────────────────────────────────────────────────
 
-    Returns dict with:
-        ok               : bool
-        verdict          : str
-        output           : str   (if ok)
-        error            : str   (if not ok)
-        execution_time_ms: float
-        memory_used_mb   : float
-    """
+def run(jar_path: str, input_data: str, workdir: str) -> dict:
     try:
         start_time = time.perf_counter()
 
@@ -94,10 +85,9 @@ def run(class_name: str, input_data: str, workdir: str) -> dict:
             [
                 "java",
                 f"-Xmx{_JVM_HEAP_MB}m",
-                f"-Xms16m",
-                "-Djava.security.manager=disallow",  # disable SecurityManager API (Java 17+)
-                "-cp", workdir,
-                class_name,
+                "-Xms16m",
+                "-Djava.security.manager=disallow",
+                "-jar", jar_path,
             ],
             input=input_data,
             stdout=subprocess.PIPE,
@@ -133,7 +123,7 @@ def run(class_name: str, input_data: str, workdir: str) -> dict:
             )
 
         if proc.returncode != 0:
-            error_msg = _decode_java_error(proc.returncode, stderr)
+            error_msg = _decode_jvm_error(proc.returncode, stderr)
             return _fail("Runtime Error", error_msg, execution_time_ms, memory_used_mb)
 
         return {
@@ -153,7 +143,7 @@ def run(class_name: str, input_data: str, workdir: str) -> dict:
             0.0,
         )
     except Exception as e:
-        logger.error(f"Java run unexpected error: {e}", exc_info=True)
+        logger.error(f"Kotlin run unexpected error: {e}", exc_info=True)
         return _fail("Runtime Error", str(e), 0.0, 0.0)
 
 
@@ -170,19 +160,14 @@ def _fail(verdict: str, error: str, time_ms: float, mem_mb: float) -> dict:
     }
 
 
-def _decode_java_error(returncode: int, stderr: str) -> str:
+def _decode_jvm_error(returncode: int, stderr: str) -> str:
     cleaned = clean_error_message(stderr, MAX_STDERR_BYTES)
-
     if "OutOfMemoryError" in stderr:
         return "Memory Limit Exceeded — your program ran out of heap memory."
     if "StackOverflowError" in stderr:
         return "Runtime Error — stack overflow (infinite recursion?)."
     if "Exception in thread" in stderr:
-        # Surface the first Exception line — most useful for users
         for line in stderr.splitlines():
             if "Exception" in line or "Error" in line:
                 return clean_error_message(line.strip(), MAX_STDERR_BYTES)
-
-    if cleaned:
-        return cleaned
-    return f"Program exited with code {returncode}."
+    return cleaned or f"Program exited with code {returncode}."

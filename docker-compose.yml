@@ -56,38 +56,6 @@ services:
       retries: 3
       start_period: 10s
 
-  judge-worker:
-    build: .
-    container_name: lumetrix-judge-worker
-    restart: unless-stopped
-    depends_on:
-      - redis
-    command: bash start_worker.sh
-    environment:
-      - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=INFO
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_WORKERS=5
-    security_opt:
-      - no-new-privileges:true
-    deploy:
-      resources:
-        limits:
-          cpus: '4.0'
-          memory: 2G
-        reservations:
-          cpus: '1.0'
-          memory: 512M
-    read_only: true
-    tmpfs:
-      - /tmp:size=1G,mode=1777
-      - /app/.cache:size=100M,mode=1777
-    pids_limit: 200
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
 volumes:
   redis_data:

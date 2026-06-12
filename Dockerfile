@@ -7,7 +7,15 @@ RUN apt-get update && apt-get install -y \
     make \
     curl \
     default-jdk \
-    && rm -rf /var/lib/apt/lists/*
+    nodejs \
+    npm \
+    golang \
+    rustc \
+    ruby \
+    php-cli \
+    kotlin \
+    && rm -rf /var/lib/apt/lists/* \
+ && npm install -g typescript
 
 # Create non-root user
 RUN useradd -m -u 1000 judge && \

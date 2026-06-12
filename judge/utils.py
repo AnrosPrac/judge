@@ -47,8 +47,10 @@ def write_source(workdir: str, filename: str, content: str) -> str:
 
         path = os.path.join(workdir, filename)
 
-        # Double-check resolved path is inside workdir
-        if not os.path.abspath(path).startswith(os.path.abspath(workdir) + os.sep):
+        # Resolve symlinks before checking containment — prevents symlink traversal
+        real_path    = os.path.realpath(path)
+        real_workdir = os.path.realpath(workdir)
+        if not real_path.startswith(real_workdir + os.sep):
             raise ValueError("Path traversal attempt detected")
 
         with open(path, "w", encoding="utf-8") as f:

@@ -7,6 +7,13 @@ from judge.languages import c as c_lang
 from judge.languages import cpp as cpp_lang
 from judge.languages import python as python_lang
 from judge.languages import java as java_lang
+from judge.languages import javascript as js_lang
+from judge.languages import go as go_lang
+from judge.languages import rust as rust_lang
+from judge.languages import typescript as ts_lang
+from judge.languages import kotlin as kotlin_lang
+from judge.languages import ruby as ruby_lang
+from judge.languages import php as php_lang
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +35,34 @@ LANGUAGES = {
     "java": {
         "module":      java_lang,
         "source_name": "Main.java",
+    },
+    "javascript": {
+        "module":      js_lang,
+        "source_name": "main.js",
+    },
+    "go": {
+        "module":      go_lang,
+        "source_name": "main.go",
+    },
+    "rust": {
+        "module":      rust_lang,
+        "source_name": "main.rs",
+    },
+    "typescript": {
+        "module":      ts_lang,
+        "source_name": "main.ts",
+    },
+    "kotlin": {
+        "module":      kotlin_lang,
+        "source_name": "main.kt",
+    },
+    "ruby": {
+        "module":      ruby_lang,
+        "source_name": "main.rb",
+    },
+    "php": {
+        "module":      php_lang,
+        "source_name": "main.php",
     },
 }
 
