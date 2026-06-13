@@ -112,7 +112,10 @@ def run(jar_path: str, input_data: str, workdir: str) -> dict:
             memory_used_mb = 0.0
 
         stdout = proc.stdout or ""
-        stderr = proc.stderr or ""
+        stderr = "\n".join(
+            line for line in (proc.stderr or "").splitlines()
+            if not line.startswith("Picked up ")
+        )
 
         if len(stdout.encode("utf-8")) > MAX_OUTPUT_BYTES:
             return _fail(
