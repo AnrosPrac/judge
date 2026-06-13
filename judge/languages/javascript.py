@@ -7,8 +7,6 @@ import resource
 import logging
 from judge.limits import (
     TIME_LIMIT_SEC,
-    MEMORY_LIMIT_BYTES,
-    STACK_LIMIT_BYTES,
     MAX_OUTPUT_BYTES,
     MAX_STDERR_BYTES,
     MAX_FILE_BYTES,
@@ -57,10 +55,10 @@ def compile(source_path: str, workdir: str):
 # ─── Security preexec ─────────────────────────────────────────────────────────
 
 def _apply_child_limits():
-    resource.setrlimit(resource.RLIMIT_AS,    (MEMORY_LIMIT_BYTES, MEMORY_LIMIT_BYTES))
-    resource.setrlimit(resource.RLIMIT_STACK, (STACK_LIMIT_BYTES,  STACK_LIMIT_BYTES))
-    resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_FILE_BYTES,     MAX_FILE_BYTES))
-    resource.setrlimit(resource.RLIMIT_NPROC, (MAX_PIDS,           MAX_PIDS))
+    # RLIMIT_AS omitted — Node/V8 maps large virtual address ranges at startup;
+    # memory is capped via --max-old-space-size instead.
+    resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_FILE_BYTES, MAX_FILE_BYTES))
+    resource.setrlimit(resource.RLIMIT_NPROC, (MAX_PIDS,       MAX_PIDS))
     resource.setrlimit(resource.RLIMIT_CPU,   (TIME_LIMIT_SEC + 1, TIME_LIMIT_SEC + 1))
 
 

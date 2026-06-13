@@ -21,8 +21,15 @@ logger = logging.getLogger(__name__)
 SOURCE_FILE = "Main.java"
 CLASS_FILE  = "Main"
 
-# JVM memory cap derived from the global limit (convert bytes → MB, leave headroom for JVM overhead)
 _JVM_HEAP_MB = max(64, (MEMORY_LIMIT_BYTES // (1024 * 1024)) - 64)
+
+import re as _re
+_PUBLIC_CLASS_RE = _re.compile(r'\bpublic\s+class\s+(\w+)')
+
+def _extract_class_name(source_code: str) -> str:
+    """Return the public class name from source, defaulting to 'Main'."""
+    m = _PUBLIC_CLASS_RE.search(source_code)
+    return m.group(1) if m else "Main"
 
 
 # ─── Compilation ──────────────────────────────────────────────────────────────
@@ -35,6 +42,18 @@ def compile(source_path: str, workdir: str):
         (success: bool, error_message: str, class_name: str | None)
     """
     try:
+        # Read source to find the actual public class name, then rename the file
+        with open(source_path, "r", encoding="utf-8") as f:
+            source_code = f.read()
+
+        class_name = _extract_class_name(source_code)
+
+        # javac requires the filename to match the public class name
+        correct_path = os.path.join(workdir, f"{class_name}.java")
+        if source_path != correct_path:
+            os.rename(source_path, correct_path)
+            source_path = correct_path
+
         proc = subprocess.run(
             ["javac", "-encoding", "UTF-8", source_path],
             stdout=subprocess.PIPE,
@@ -48,11 +67,11 @@ def compile(source_path: str, workdir: str):
             error = proc.stderr or proc.stdout or "Unknown compilation error"
             return False, clean_error_message(error, MAX_COMPILE_OUTPUT_KB * 1024), None
 
-        class_file = os.path.join(workdir, f"{CLASS_FILE}.class")
+        class_file = os.path.join(workdir, f"{class_name}.class")
         if not os.path.exists(class_file):
             return False, "Compiler produced no .class output.", None
 
-        return True, "", CLASS_FILE
+        return True, "", class_name
 
     except subprocess.TimeoutExpired:
         logger.warning("Java compilation timed out")

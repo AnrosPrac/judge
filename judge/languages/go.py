@@ -46,16 +46,26 @@ def compile(source_path: str, workdir: str):
     binary_path = os.path.join(workdir, BINARY_FILE)
 
     try:
+        # Write a minimal go.mod so the build works offline with no module downloads
+        gomod_path = os.path.join(workdir, "go.mod")
+        if not os.path.exists(gomod_path):
+            with open(gomod_path, "w") as f:
+                f.write("module submission\n\ngo 1.21\n")
+
         env = {
-            "PATH":    "/usr/local/go/bin:/usr/bin:/bin:/usr/local/bin",
-            "HOME":    "/tmp",
-            "GOPATH":  workdir,
-            "GOCACHE": os.path.join(workdir, ".gocache"),
-            "GOFLAGS": "-mod=mod",
+            "PATH":      "/usr/local/go/bin:/usr/bin:/bin:/usr/local/bin",
+            "HOME":      "/tmp",
+            "GOPATH":    workdir,
+            "GOCACHE":   os.path.join(workdir, ".gocache"),
+            "GONOSUMDB":  "*",
+            "GOFLAGS":    "",
+            "GOMODCACHE": os.path.join(workdir, ".modcache"),
+            "GONOPROXY":  "*",
+            "GONOSUMCHECK": "",
         }
 
         proc = subprocess.run(
-            ["go", "build", "-o", binary_path, source_path],
+            ["go", "build", "-mod=mod", "-o", binary_path, source_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=COMPILE_TIME_LIMIT_SEC,
