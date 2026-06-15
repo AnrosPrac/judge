@@ -81,8 +81,9 @@ def compile(source_path: str, workdir: str):
 
 def _apply_child_limits():
     # RLIMIT_AS omitted — same reason as javascript.py (V8 virtual address space).
+    # RLIMIT_NPROC omitted — same reason as javascript.py (shared-host PID exhaustion
+    # kills Node's Worker Thread scheduler before user code runs).
     resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_FILE_BYTES, MAX_FILE_BYTES))
-    resource.setrlimit(resource.RLIMIT_NPROC, (MAX_PIDS,       MAX_PIDS))
     resource.setrlimit(resource.RLIMIT_CPU,   (TIME_LIMIT_SEC + 1, TIME_LIMIT_SEC + 1))
 
 

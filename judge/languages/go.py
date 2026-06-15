@@ -57,14 +57,17 @@ def compile(source_path: str, workdir: str):
                 f.write("module submission\n\ngo 1.21\n")
 
         env = {
-            "PATH":       "/usr/local/go/bin:/usr/bin:/bin:/usr/local/bin",
-            "HOME":       "/tmp",
-            "GOPATH":     "/tmp/go_path",
-            "GOCACHE":    "/tmp/go_cache",   # persistent across submissions — avoids cold rebuild every time
-            "GOMODCACHE": "/tmp/go_modcache",
-            "GONOSUMDB":  "*",
-            "GONOPROXY":  "*",
-            "GOFLAGS":    "",
+            "PATH":        "/usr/local/go/bin:/usr/bin:/bin:/usr/local/bin",
+            "HOME":        "/tmp",
+            "GOPATH":      "/tmp/go_path",
+            "GOCACHE":     "/tmp/go_cache",    # persists across submissions — avoids cold rebuild
+            "GOMODCACHE":  "/tmp/go_modcache",
+            "GONOSUMDB":   "*",                # never contact sum DB
+            "GONOPROXY":   "*",                # never contact module proxy
+            "GONOSUMCHECK": "*",
+            "GOFLAGS":     "",
+            "GOPROXY":     "off",              # hard-block network: if a module isn't cached, fail fast
+            "CGO_ENABLED": "0",               # static binary, no C toolchain, faster build
         }
 
         proc = subprocess.run(

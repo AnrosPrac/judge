@@ -74,8 +74,8 @@ def compile(source_path: str, workdir: str):
 
 def _apply_child_limits():
     # RLIMIT_AS intentionally omitted for JVM — see java.py for explanation.
+    # RLIMIT_NPROC intentionally omitted — see java.py for explanation.
     resource.setrlimit(resource.RLIMIT_FSIZE, (256 * 1024 * 1024, 256 * 1024 * 1024))
-    resource.setrlimit(resource.RLIMIT_NPROC, (MAX_PIDS,           MAX_PIDS))
     resource.setrlimit(resource.RLIMIT_CPU,   (TIME_LIMIT_SEC + 2, TIME_LIMIT_SEC + 2))
 
 

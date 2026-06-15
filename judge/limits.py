@@ -16,7 +16,12 @@ MAX_TESTCASES           = 20      # Maximum test cases per submission
 MAX_SOURCE_SIZE_KB      = 100     # Maximum source code size
 
 # ─── Compilation limits ──────────────────────────────────────────────────────
-COMPILE_TIME_LIMIT_SEC  = 30      # Compilation timeout (JVM/kotlinc cold-start needs ~15-20s)
+COMPILE_TIME_LIMIT_SEC  = 60      # Compilation timeout (kotlinc cold JVM start needs up to 45s)
+
+# ─── Total request deadline ───────────────────────────────────────────────────
+# Hard wall-clock budget for the entire /run request (compile + execute).
+# Must be less than the reverse-proxy / CDN gateway timeout (Render = 60s HTTP).
+RUN_TOTAL_TIMEOUT_SEC   = 55
 MAX_COMPILE_OUTPUT_KB   = 32      # Max compiler error output
 
 # ─── Process limits (security) ───────────────────────────────────────────────

@@ -94,8 +94,11 @@ def compile(source_path: str, workdir: str):
 def _apply_child_limits():
     # RLIMIT_AS intentionally omitted for JVM (large virtual address space at startup);
     # heap is capped via -Xmx instead. RLIMIT_AS would kill the JVM before it starts.
+    # RLIMIT_NPROC omitted — the JVM spawns GC, JIT, and signal-handler threads at
+    # startup. On a shared/containerised host the per-user PID count is often already
+    # near the OS limit; adding RLIMIT_NPROC causes the JVM to die before reaching
+    # main(), producing "exit code 1" with no useful stderr.
     resource.setrlimit(resource.RLIMIT_FSIZE, (256 * 1024 * 1024, 256 * 1024 * 1024))
-    resource.setrlimit(resource.RLIMIT_NPROC, (MAX_PIDS,           MAX_PIDS))
     resource.setrlimit(resource.RLIMIT_CPU,   (TIME_LIMIT_SEC + 2, TIME_LIMIT_SEC + 2))
 
 

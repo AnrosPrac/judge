@@ -61,8 +61,11 @@ def compile(source_path: str, workdir: str):
 def _apply_child_limits():
     # RLIMIT_AS omitted — Node/V8 maps large virtual address ranges at startup;
     # memory is capped via --max-old-space-size instead.
+    # RLIMIT_NPROC omitted — it counts against the OS user's total PID count, not
+    # just this process. On a shared/containerised host Node's internal Worker Thread
+    # scheduler hits the limit before running a single line of user code, causing an
+    # immediate crash with a cryptic node_platform.cc abort (exit code 1, no stdout).
     resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_FILE_BYTES, MAX_FILE_BYTES))
-    resource.setrlimit(resource.RLIMIT_NPROC, (MAX_PIDS,       MAX_PIDS))
     resource.setrlimit(resource.RLIMIT_CPU,   (TIME_LIMIT_SEC + 1, TIME_LIMIT_SEC + 1))
 
 

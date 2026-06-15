@@ -11,6 +11,7 @@ import asyncio
 import uuid
 from datetime import datetime, timezone
 from judge.judge import judge_submission, run_submission, LANGUAGES
+from judge.limits import RUN_TOTAL_TIMEOUT_SEC
 from judge.frontend.pixel_compare import compare_images
 from judge.frontend.css_checker import check_css
 from judge.frontend.html_checker import check_html_structure
@@ -310,13 +311,28 @@ async def run(req: RunRequest, _: str = Depends(verify_api_key)):
     """
     async with run_semaphore:
         try:
-            result = await asyncio.to_thread(
-                run_submission,
-                source_code=req.sourceCode,
-                language=req.language,
-                stdin=req.stdin,
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    run_submission,
+                    source_code=req.sourceCode,
+                    language=req.language,
+                    stdin=req.stdin,
+                ),
+                timeout=RUN_TOTAL_TIMEOUT_SEC,
             )
             return JSONResponse(content=result)
+        except asyncio.TimeoutError:
+            logger.warning(f"Run request timed out after {RUN_TOTAL_TIMEOUT_SEC}s ({req.language})")
+            return JSONResponse(
+                status_code=408,
+                content={
+                    "stdout": "",
+                    "stderr": f"Execution timed out (compile + run exceeded {RUN_TOTAL_TIMEOUT_SEC}s).",
+                    "execution_time_ms": RUN_TOTAL_TIMEOUT_SEC * 1000.0,
+                    "memory_mb": 0.0,
+                    "exit_code": 1,
+                }
+            )
         except Exception as e:
             logger.error(f"Run error: {e}", exc_info=True)
             return JSONResponse(
