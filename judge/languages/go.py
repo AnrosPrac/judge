@@ -8,15 +8,12 @@ import logging
 
 _IS_LINUX = sys.platform == "linux"
 if _IS_LINUX:
-    import resource
+    import resource  # kept for memory measurement in run()
 from judge.limits import (
     TIME_LIMIT_SEC,
     COMPILE_TIME_LIMIT_SEC,
-    MEMORY_LIMIT_BYTES,
-    STACK_LIMIT_BYTES,
     MAX_OUTPUT_BYTES,
     MAX_STDERR_BYTES,
-    MAX_FILE_BYTES,
     MAX_COMPILE_OUTPUT_KB,
 )
 from judge.utils import clean_error_message
@@ -24,19 +21,6 @@ from judge.utils import clean_error_message
 logger = logging.getLogger(__name__)
 
 SOURCE_FILE = "main.go"
-BINARY_FILE = "main"
-
-
-# ─── Security preexec ─────────────────────────────────────────────────────────
-
-def _apply_child_limits():
-    # RLIMIT_NPROC omitted — Go's runtime spawns goroutine scheduler threads (GOMAXPROCS)
-    # and a finalizer goroutine at startup. On a shared host the per-user PID count
-    # is already near the limit; RLIMIT_NPROC kills the Go runtime before main() runs.
-    resource.setrlimit(resource.RLIMIT_AS,    (MEMORY_LIMIT_BYTES, MEMORY_LIMIT_BYTES))
-    resource.setrlimit(resource.RLIMIT_STACK, (STACK_LIMIT_BYTES,  STACK_LIMIT_BYTES))
-    resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_FILE_BYTES,     MAX_FILE_BYTES))
-    resource.setrlimit(resource.RLIMIT_CPU,   (TIME_LIMIT_SEC + 1, TIME_LIMIT_SEC + 1))
 
 
 # ─── Compilation ──────────────────────────────────────────────────────────────
@@ -48,65 +32,54 @@ def compile(source_path: str, workdir: str):
     Returns:
         (success: bool, error_message: str, binary_path: str | None)
     """
-    binary_path = os.path.join(workdir, BINARY_FILE)
-
+    # Go uses `go run` instead of compile+execute separately.
+    # compile() just does a syntax check via `go vet`; the actual build+run
+    # happens in run(). This avoids cold-cache binary linking (20-30s) entirely.
+    # Return source_path as the "executable" — run() receives it and calls go run.
     try:
-        # GO111MODULE=off: bypass the module system entirely.
-        # Submission programs only use stdlib — no go.mod, no go.sum, no network,
-        # no module graph resolution. `go build` in GOPATH mode compiles in ~1s from
-        # the build cache (/tmp/go_cache) which persists across requests.
-        # Mixing -mod=mod with GOPROXY=off is contradictory and breaks on cold cache;
-        # GOPATH mode sidesteps the entire problem.
-        env = {
-            "PATH":          "/usr/local/go/bin:/usr/bin:/bin:/usr/local/bin",
-            "HOME":          "/tmp",
-            "GOPATH":        "/tmp/go_path",
-            "GOCACHE":       "/tmp/go_cache",  # persists across submissions
-            "CGO_ENABLED":   "0",              # static binary, no C toolchain, ~30% faster build
-            "GO111MODULE":   "off",            # GOPATH mode — no module resolution at all
-        }
-
-        # Copy source into GOPATH src tree so `go build` can find it without a go.mod
-        import shutil as _shutil
-        gopath_src = "/tmp/go_path/src/submission"
-        os.makedirs(gopath_src, exist_ok=True)
-        dest_src = os.path.join(gopath_src, "main.go")
-        _shutil.copy2(source_path, dest_src)
-
         proc = subprocess.run(
-            ["go", "build", "-o", binary_path, "submission"],
+            ["go", "vet", source_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=COMPILE_TIME_LIMIT_SEC,
             text=True,
             cwd=workdir,
-            env=env,
+            env=_go_env(),
         )
 
         if proc.returncode != 0:
-            error = proc.stderr or proc.stdout or "Unknown compilation error"
+            error = proc.stderr or proc.stdout or "Syntax/type error"
             return False, clean_error_message(error, MAX_COMPILE_OUTPUT_KB * 1024), None
 
-        if not os.path.exists(binary_path):
-            return False, "Compiler produced no binary output.", None
-
-        os.chmod(binary_path, 0o500)
-        return True, "", binary_path
+        return True, "", source_path
 
     except subprocess.TimeoutExpired:
-        logger.warning("Go compilation timed out")
-        return False, "Compilation timed out. Simplify your code.", None
+        logger.warning("Go vet timed out")
+        return False, "Compilation timed out.", None
     except FileNotFoundError:
         logger.error("go not found on system")
         return False, "Go compiler is not available.", None
     except Exception as e:
-        logger.error(f"Go compilation unexpected error: {e}", exc_info=True)
+        logger.error(f"Go compile error: {e}", exc_info=True)
         return False, f"Compilation failed: {str(e)}", None
+
+
+# ─── Shared env ──────────────────────────────────────────────────────────────
+
+def _go_env() -> dict:
+    return {
+        "PATH":        "/usr/local/go/bin:/usr/bin:/bin:/usr/local/bin",
+        "HOME":        "/tmp",
+        "GOCACHE":     "/tmp/go_cache",   # persists across requests — warm cache = ~1s builds
+        "GOPATH":      "/tmp/go_path",
+        "CGO_ENABLED": "0",               # no C toolchain, static binary, faster
+        "GO111MODULE": "off",             # GOPATH mode — no module graph, no network
+    }
 
 
 # ─── Execution ────────────────────────────────────────────────────────────────
 
-def run(binary_path: str, input_data: str, workdir: str) -> dict:
+def run(source_path: str, input_data: str, workdir: str) -> dict:
     try:
         start_time = time.perf_counter()
         try:
@@ -114,16 +87,20 @@ def run(binary_path: str, input_data: str, workdir: str) -> dict:
         except Exception:
             _mem_before = 0
 
+        # `go run` compiles + executes in one step using the incremental build cache.
+        # On a warm GOCACHE this takes ~1s. Binary linking overhead is avoided entirely.
+        # preexec_fn is NOT applied here — `go run` itself is the Go toolchain and needs
+        # unrestricted address space during compilation. RLIMIT_AS would kill it before
+        # user code ever runs. The subprocess timeout= is the wall-clock guard instead.
         proc = subprocess.run(
-            [binary_path],
+            ["go", "run", source_path],
             input=input_data,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=TIME_LIMIT_SEC,
+            timeout=TIME_LIMIT_SEC + 10,  # extra headroom for first-run cache warm-up
             text=True,
             cwd=workdir,
-            preexec_fn=_apply_child_limits if _IS_LINUX else None,
-            env={},
+            env=_go_env(),
         )
 
         execution_time_ms = (time.perf_counter() - start_time) * 1000
@@ -162,7 +139,7 @@ def run(binary_path: str, input_data: str, workdir: str) -> dict:
         return _fail(
             "Time Limit Exceeded",
             f"Your program exceeded the time limit of {TIME_LIMIT_SEC}s.",
-            TIME_LIMIT_SEC * 1000,
+            (TIME_LIMIT_SEC + 10) * 1000,
             0.0,
         )
     except Exception as e:

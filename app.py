@@ -37,6 +37,40 @@ run_semaphore: asyncio.Semaphore = None
 
 # ─── Lifespan ─────────────────────────────────────────────────────────────────
 
+def _warmup_go_cache():
+    """
+    Run a trivial Go program at startup to populate GOCACHE with stdlib packages.
+    Without this, the first user request pays the full 20-30s cold-compile cost.
+    Runs in a thread so it doesn't block the event loop.
+    """
+    import subprocess, os, tempfile
+    hello = 'package main\nimport "fmt"\nfunc main(){fmt.Println("ok")}\n'
+    try:
+        with tempfile.TemporaryDirectory(prefix="go_warmup_", dir="/tmp") as d:
+            src = os.path.join(d, "main.go")
+            with open(src, "w") as f:
+                f.write(hello)
+            env = {
+                "PATH":        "/usr/local/go/bin:/usr/bin:/bin:/usr/local/bin",
+                "HOME":        "/tmp",
+                "GOCACHE":     "/tmp/go_cache",
+                "GOPATH":      "/tmp/go_path",
+                "CGO_ENABLED": "0",
+                "GO111MODULE": "off",
+            }
+            os.makedirs("/tmp/go_cache", exist_ok=True)
+            result = subprocess.run(
+                ["go", "run", src],
+                env=env, capture_output=True, timeout=60, cwd=d,
+            )
+            if result.returncode == 0:
+                logger.info("Go build cache warmed up successfully")
+            else:
+                logger.warning(f"Go warmup failed: {result.stderr.decode()[:200]}")
+    except Exception as e:
+        logger.warning(f"Go cache warmup error (non-fatal): {e}")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global task_queue, run_semaphore
@@ -46,6 +80,9 @@ async def lifespan(_app: FastAPI):
 
     workers = [asyncio.create_task(process_queue()) for _ in range(settings.MAX_CONCURRENT_TASKS)]
     cleanup = asyncio.create_task(_cleanup_loop())
+
+    # Pre-warm Go's build cache so the first submission doesn't pay cold-compile cost
+    asyncio.create_task(asyncio.to_thread(_warmup_go_cache))
 
     logger.info(
         f"Started {settings.MAX_CONCURRENT_TASKS} judge workers, "
