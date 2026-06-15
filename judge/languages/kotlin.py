@@ -17,7 +17,6 @@ from judge.limits import (
     MAX_OUTPUT_BYTES,
     MAX_STDERR_BYTES,
     MAX_COMPILE_OUTPUT_KB,
-    MAX_PIDS,
 )
 from judge.utils import clean_error_message
 
@@ -42,7 +41,21 @@ def compile(source_path: str, workdir: str):
 
     try:
         proc = subprocess.run(
-            ["kotlinc", source_path, "-include-runtime", "-d", jar_path],
+            [
+                "kotlinc",
+                # -J flags pass JVM args directly to the kotlinc JVM process.
+                # -client: use client JIT — starts in ~2s vs ~8s for server JIT.
+                # -Xss: reduce thread stack from 512KB default to 256KB — less RSS.
+                # -Xms/-Xmx: pin the compiler heap. Without these, on a memory-
+                #   constrained free-tier host the JVM may spend 20s+ just in GC
+                #   during startup before compiling a single line of Kotlin.
+                "-J-client",
+                "-J-Xms64m",
+                "-J-Xmx256m",
+                "-J-Xss256k",
+                "-J-XX:TieredStopAtLevel=1",  # interpreter only — zero JIT warmup cost
+                source_path, "-include-runtime", "-d", jar_path,
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=COMPILE_TIME_LIMIT_SEC,

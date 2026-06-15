@@ -20,8 +20,9 @@ COMPILE_TIME_LIMIT_SEC  = 60      # Compilation timeout (kotlinc cold JVM start 
 
 # ─── Total request deadline ───────────────────────────────────────────────────
 # Hard wall-clock budget for the entire /run request (compile + execute).
-# Must be less than the reverse-proxy / CDN gateway timeout (Render = 60s HTTP).
-RUN_TOTAL_TIMEOUT_SEC   = 55
+# Render free tier gateway kills HTTP connections at 30s. Stay under that so
+# the judge returns a clean error to the client instead of a gateway timeout.
+RUN_TOTAL_TIMEOUT_SEC   = 28
 MAX_COMPILE_OUTPUT_KB   = 32      # Max compiler error output
 
 # ─── Process limits (security) ───────────────────────────────────────────────

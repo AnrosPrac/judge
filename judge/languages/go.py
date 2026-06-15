@@ -17,7 +17,6 @@ from judge.limits import (
     MAX_OUTPUT_BYTES,
     MAX_STDERR_BYTES,
     MAX_FILE_BYTES,
-    MAX_PIDS,
     MAX_COMPILE_OUTPUT_KB,
 )
 from judge.utils import clean_error_message
@@ -31,10 +30,12 @@ BINARY_FILE = "main"
 # ─── Security preexec ─────────────────────────────────────────────────────────
 
 def _apply_child_limits():
+    # RLIMIT_NPROC omitted — Go's runtime spawns goroutine scheduler threads (GOMAXPROCS)
+    # and a finalizer goroutine at startup. On a shared host the per-user PID count
+    # is already near the limit; RLIMIT_NPROC kills the Go runtime before main() runs.
     resource.setrlimit(resource.RLIMIT_AS,    (MEMORY_LIMIT_BYTES, MEMORY_LIMIT_BYTES))
     resource.setrlimit(resource.RLIMIT_STACK, (STACK_LIMIT_BYTES,  STACK_LIMIT_BYTES))
     resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_FILE_BYTES,     MAX_FILE_BYTES))
-    resource.setrlimit(resource.RLIMIT_NPROC, (MAX_PIDS,           MAX_PIDS))
     resource.setrlimit(resource.RLIMIT_CPU,   (TIME_LIMIT_SEC + 1, TIME_LIMIT_SEC + 1))
 
 
@@ -50,28 +51,30 @@ def compile(source_path: str, workdir: str):
     binary_path = os.path.join(workdir, BINARY_FILE)
 
     try:
-        # Write a minimal go.mod so the build works offline with no module downloads
-        gomod_path = os.path.join(workdir, "go.mod")
-        if not os.path.exists(gomod_path):
-            with open(gomod_path, "w") as f:
-                f.write("module submission\n\ngo 1.21\n")
-
+        # GO111MODULE=off: bypass the module system entirely.
+        # Submission programs only use stdlib — no go.mod, no go.sum, no network,
+        # no module graph resolution. `go build` in GOPATH mode compiles in ~1s from
+        # the build cache (/tmp/go_cache) which persists across requests.
+        # Mixing -mod=mod with GOPROXY=off is contradictory and breaks on cold cache;
+        # GOPATH mode sidesteps the entire problem.
         env = {
-            "PATH":        "/usr/local/go/bin:/usr/bin:/bin:/usr/local/bin",
-            "HOME":        "/tmp",
-            "GOPATH":      "/tmp/go_path",
-            "GOCACHE":     "/tmp/go_cache",    # persists across submissions — avoids cold rebuild
-            "GOMODCACHE":  "/tmp/go_modcache",
-            "GONOSUMDB":   "*",                # never contact sum DB
-            "GONOPROXY":   "*",                # never contact module proxy
-            "GONOSUMCHECK": "*",
-            "GOFLAGS":     "",
-            "GOPROXY":     "off",              # hard-block network: if a module isn't cached, fail fast
-            "CGO_ENABLED": "0",               # static binary, no C toolchain, faster build
+            "PATH":          "/usr/local/go/bin:/usr/bin:/bin:/usr/local/bin",
+            "HOME":          "/tmp",
+            "GOPATH":        "/tmp/go_path",
+            "GOCACHE":       "/tmp/go_cache",  # persists across submissions
+            "CGO_ENABLED":   "0",              # static binary, no C toolchain, ~30% faster build
+            "GO111MODULE":   "off",            # GOPATH mode — no module resolution at all
         }
 
+        # Copy source into GOPATH src tree so `go build` can find it without a go.mod
+        import shutil as _shutil
+        gopath_src = "/tmp/go_path/src/submission"
+        os.makedirs(gopath_src, exist_ok=True)
+        dest_src = os.path.join(gopath_src, "main.go")
+        _shutil.copy2(source_path, dest_src)
+
         proc = subprocess.run(
-            ["go", "build", "-mod=mod", "-o", binary_path, source_path],
+            ["go", "build", "-o", binary_path, "submission"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=COMPILE_TIME_LIMIT_SEC,
