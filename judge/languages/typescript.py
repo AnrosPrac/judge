@@ -100,7 +100,6 @@ def run(js_path: str, input_data: str, workdir: str) -> dict:
             [
                 "node",
                 "--max-old-space-size=200",
-                "--disallow-code-generation-from-strings",
                 js_path,
             ],
             input=input_data,

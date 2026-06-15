@@ -16,7 +16,7 @@ MAX_TESTCASES           = 20      # Maximum test cases per submission
 MAX_SOURCE_SIZE_KB      = 100     # Maximum source code size
 
 # ─── Compilation limits ──────────────────────────────────────────────────────
-COMPILE_TIME_LIMIT_SEC  = 10      # Compilation timeout
+COMPILE_TIME_LIMIT_SEC  = 30      # Compilation timeout (JVM/kotlinc cold-start needs ~15-20s)
 MAX_COMPILE_OUTPUT_KB   = 32      # Max compiler error output
 
 # ─── Process limits (security) ───────────────────────────────────────────────

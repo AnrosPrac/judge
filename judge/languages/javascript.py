@@ -79,8 +79,7 @@ def run(source_path: str, input_data: str, workdir: str) -> dict:
         proc = subprocess.run(
             [
                 "node",
-                "--max-old-space-size=200",   # V8 heap cap (MB)
-                "--disallow-code-generation-from-strings",  # block eval/Function()
+                "--max-old-space-size=200",
                 source_path,
             ],
             input=input_data,
