@@ -3,9 +3,13 @@
 
 import subprocess
 import os
+import sys
 import time
-import resource
 import logging
+
+_IS_LINUX = sys.platform == "linux"
+if _IS_LINUX:
+    import resource
 from judge.limits import (
     TIME_LIMIT_SEC,
     MEMORY_LIMIT_BYTES,
@@ -69,6 +73,10 @@ def _apply_child_limits():
 def run(source_path: str, input_data: str, workdir: str) -> dict:
     try:
         start_time = time.perf_counter()
+        try:
+            _mem_before = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss if _IS_LINUX else 0
+        except Exception:
+            _mem_before = 0
 
         proc = subprocess.run(
             [
@@ -85,7 +93,7 @@ def run(source_path: str, input_data: str, workdir: str) -> dict:
             timeout=TIME_LIMIT_SEC,
             text=True,
             cwd=workdir,
-            preexec_fn=_apply_child_limits,
+            preexec_fn=_apply_child_limits if _IS_LINUX else None,
             env={
                 "PATH": "/usr/bin:/bin:/usr/local/bin",
                 "HOME": "/tmp",
@@ -95,8 +103,8 @@ def run(source_path: str, input_data: str, workdir: str) -> dict:
         execution_time_ms = (time.perf_counter() - start_time) * 1000
 
         try:
-            usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-            memory_used_mb = usage.ru_maxrss / 1024
+            _mem_after = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss if _IS_LINUX else 0
+            memory_used_mb = max(0.0, _mem_after - _mem_before) / 1024
         except Exception:
             memory_used_mb = 0.0
 
@@ -118,7 +126,7 @@ def run(source_path: str, input_data: str, workdir: str) -> dict:
         return {
             "ok": True,
             "verdict": "Accepted",
-            "output": stdout.strip(),
+            "output": stdout.rstrip("\r\n"),
             "error": None,
             "execution_time_ms": round(execution_time_ms, 2),
             "memory_used_mb": round(max(memory_used_mb, 0.0), 2),

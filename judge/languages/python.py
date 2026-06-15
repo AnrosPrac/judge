@@ -2,9 +2,13 @@
 
 import subprocess
 import os
+import sys
 import time
-import resource
 import logging
+
+_IS_LINUX = sys.platform == "linux"
+if _IS_LINUX:
+    import resource
 from judge.limits import (
     TIME_LIMIT_SEC,
     MEMORY_LIMIT_BYTES,
@@ -27,6 +31,12 @@ _BLOCKED_IMPORTS = frozenset([
     "signal", "pty", "tty", "termios", "fcntl", "resource",
     "gc", "inspect", "ast", "dis", "code", "codeop",
     "runpy", "zipimport", "pkgutil", "site",
+    # Low-level bypass routes
+    "posix", "nt", "builtins", "_io", "_thread", "_signal",
+    "_posixsubprocess", "pwd", "grp", "select", "selectors",
+    "mmap", "array", "sysconfig", "distutils", "platform",
+    "webbrowser", "urllib", "http", "ftplib", "smtplib",
+    "telnetlib", "xmlrpc", "antigravity",
 ])
 
 
@@ -161,10 +171,11 @@ finally:
 """
 
 
-def run(source_path: str, input_data: str, workdir: str) -> dict:
+def run(_executable: str, input_data: str, workdir: str) -> dict:
     """
     Execute Python source for one test case with memory tracking and isolation.
     The _runner.py wrapper is written once during compile() and reused here.
+    _executable is ignored — the wrapper path is always derived from workdir.
 
     Returns dict with:
         ok               : bool
@@ -174,7 +185,6 @@ def run(source_path: str, input_data: str, workdir: str) -> dict:
         execution_time_ms: float
         memory_used_mb   : float
     """
-    # Wrapper was already written during compile() — just reference it
     wrapper_path = os.path.join(workdir, "_runner.py")
 
     try:
@@ -193,7 +203,7 @@ def run(source_path: str, input_data: str, workdir: str) -> dict:
             timeout=TIME_LIMIT_SEC,
             text=True,
             cwd=workdir,
-            preexec_fn=_apply_child_limits,
+            preexec_fn=_apply_child_limits if _IS_LINUX else None,
             env={
                 "PYTHONDONTWRITEBYTECODE": "1",
                 "PYTHONUNBUFFERED": "1",
@@ -255,7 +265,7 @@ def run(source_path: str, input_data: str, workdir: str) -> dict:
         return {
             "ok": True,
             "verdict": "Accepted",
-            "output": stdout.strip(),
+            "output": stdout.rstrip("\r\n"),
             "error": None,
             "execution_time_ms": round(execution_time_ms, 2),
             "memory_used_mb": round(max(memory_used_mb, 0.0), 2),

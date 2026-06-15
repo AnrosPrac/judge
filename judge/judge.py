@@ -91,11 +91,11 @@ def _verdict_rank(v: str) -> int:
 
 def _normalise(text: str) -> str:
     """
-    Strip and normalise line endings.
+    Normalise line endings and strip trailing whitespace only.
     Handles \\r\\n (Windows), \\r (old Mac), \\n (Unix).
-    Prevents false Wrong Answers from line ending mismatches.
+    Leading whitespace is preserved — problems may require it.
     """
-    return text.strip().replace("\r\n", "\n").replace("\r", "\n")
+    return text.replace("\r\n", "\n").replace("\r", "\n").rstrip()
 
 
 # ─── Main entry point ─────────────────────────────────────────────────────────

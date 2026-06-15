@@ -3,9 +3,13 @@
 
 import subprocess
 import os
+import sys
 import time
-import resource
 import logging
+
+_IS_LINUX = sys.platform == "linux"
+if _IS_LINUX:
+    import resource
 from judge.limits import (
     TIME_LIMIT_SEC,
     COMPILE_TIME_LIMIT_SEC,
@@ -80,6 +84,10 @@ def _apply_child_limits():
 def run(jar_path: str, input_data: str, workdir: str) -> dict:
     try:
         start_time = time.perf_counter()
+        try:
+            _mem_before = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss if _IS_LINUX else 0
+        except Exception:
+            _mem_before = 0
 
         proc = subprocess.run(
             [
@@ -95,7 +103,7 @@ def run(jar_path: str, input_data: str, workdir: str) -> dict:
             timeout=TIME_LIMIT_SEC,
             text=True,
             cwd=workdir,
-            preexec_fn=_apply_child_limits,
+            preexec_fn=_apply_child_limits if _IS_LINUX else None,
             env={
                 "PATH": "/usr/bin:/bin:/usr/local/bin",
                 "HOME": "/tmp",
@@ -106,8 +114,8 @@ def run(jar_path: str, input_data: str, workdir: str) -> dict:
         execution_time_ms = (time.perf_counter() - start_time) * 1000
 
         try:
-            usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-            memory_used_mb = usage.ru_maxrss / 1024
+            _mem_after = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss if _IS_LINUX else 0
+            memory_used_mb = max(0.0, _mem_after - _mem_before) / 1024
         except Exception:
             memory_used_mb = 0.0
 
@@ -126,13 +134,13 @@ def run(jar_path: str, input_data: str, workdir: str) -> dict:
             )
 
         if proc.returncode != 0:
-            error_msg = _decode_jvm_error(proc.returncode, stderr)
-            return _fail("Runtime Error", error_msg, execution_time_ms, memory_used_mb)
+            verdict, error_msg = _decode_jvm_error(proc.returncode, stderr)
+            return _fail(verdict, error_msg, execution_time_ms, memory_used_mb)
 
         return {
             "ok": True,
             "verdict": "Accepted",
-            "output": stdout.strip(),
+            "output": stdout.rstrip("\r\n"),
             "error": None,
             "execution_time_ms": round(execution_time_ms, 2),
             "memory_used_mb": round(max(memory_used_mb, 0.0), 2),
@@ -163,14 +171,14 @@ def _fail(verdict: str, error: str, time_ms: float, mem_mb: float) -> dict:
     }
 
 
-def _decode_jvm_error(returncode: int, stderr: str) -> str:
+def _decode_jvm_error(returncode: int, stderr: str) -> tuple[str, str]:
     cleaned = clean_error_message(stderr, MAX_STDERR_BYTES)
     if "OutOfMemoryError" in stderr:
-        return "Memory Limit Exceeded — your program ran out of heap memory."
+        return "Memory Limit Exceeded", "Your program ran out of heap memory."
     if "StackOverflowError" in stderr:
-        return "Runtime Error — stack overflow (infinite recursion?)."
+        return "Runtime Error", "Stack overflow — infinite recursion?"
     if "Exception in thread" in stderr:
         for line in stderr.splitlines():
             if "Exception" in line or "Error" in line:
-                return clean_error_message(line.strip(), MAX_STDERR_BYTES)
-    return cleaned or f"Program exited with code {returncode}."
+                return "Runtime Error", clean_error_message(line.strip(), MAX_STDERR_BYTES)
+    return "Runtime Error", cleaned or f"Program exited with code {returncode}."

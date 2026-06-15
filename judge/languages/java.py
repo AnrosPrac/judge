@@ -2,9 +2,13 @@
 
 import subprocess
 import os
+import sys
 import time
-import resource
 import logging
+
+_IS_LINUX = sys.platform == "linux"
+if _IS_LINUX:
+    import resource
 from judge.limits import (
     TIME_LIMIT_SEC,
     COMPILE_TIME_LIMIT_SEC,
@@ -25,10 +29,11 @@ _JVM_HEAP_MB = max(64, (MEMORY_LIMIT_BYTES // (1024 * 1024)) - 64)
 
 import re as _re
 _PUBLIC_CLASS_RE = _re.compile(r'\bpublic\s+class\s+(\w+)')
+_ANY_CLASS_RE    = _re.compile(r'\bclass\s+(\w+)')
 
 def _extract_class_name(source_code: str) -> str:
-    """Return the public class name from source, defaulting to 'Main'."""
-    m = _PUBLIC_CLASS_RE.search(source_code)
+    """Return the public class name, falling back to first class, then 'Main'."""
+    m = _PUBLIC_CLASS_RE.search(source_code) or _ANY_CLASS_RE.search(source_code)
     return m.group(1) if m else "Main"
 
 
@@ -108,6 +113,10 @@ def run(class_name: str, input_data: str, workdir: str) -> dict:
     """
     try:
         start_time = time.perf_counter()
+        try:
+            _mem_before = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss if _IS_LINUX else 0
+        except Exception:
+            _mem_before = 0
 
         proc = subprocess.run(
             [
@@ -124,7 +133,7 @@ def run(class_name: str, input_data: str, workdir: str) -> dict:
             timeout=TIME_LIMIT_SEC,
             text=True,
             cwd=workdir,
-            preexec_fn=_apply_child_limits,
+            preexec_fn=_apply_child_limits if _IS_LINUX else None,
             env={
                 "PATH": "/usr/bin:/bin:/usr/local/bin",
                 "HOME": "/tmp",
@@ -134,8 +143,8 @@ def run(class_name: str, input_data: str, workdir: str) -> dict:
         execution_time_ms = (time.perf_counter() - start_time) * 1000
 
         try:
-            usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-            memory_used_mb = usage.ru_maxrss / 1024
+            _mem_after = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss if _IS_LINUX else 0
+            memory_used_mb = max(0.0, _mem_after - _mem_before) / 1024
         except Exception:
             memory_used_mb = 0.0
 
@@ -154,13 +163,13 @@ def run(class_name: str, input_data: str, workdir: str) -> dict:
             )
 
         if proc.returncode != 0:
-            error_msg = _decode_java_error(proc.returncode, stderr)
-            return _fail("Runtime Error", error_msg, execution_time_ms, memory_used_mb)
+            verdict, error_msg = _decode_java_error(proc.returncode, stderr)
+            return _fail(verdict, error_msg, execution_time_ms, memory_used_mb)
 
         return {
             "ok": True,
             "verdict": "Accepted",
-            "output": stdout.strip(),
+            "output": stdout.rstrip("\r\n"),
             "error": None,
             "execution_time_ms": round(execution_time_ms, 2),
             "memory_used_mb": round(max(memory_used_mb, 0.0), 2),
@@ -191,19 +200,18 @@ def _fail(verdict: str, error: str, time_ms: float, mem_mb: float) -> dict:
     }
 
 
-def _decode_java_error(returncode: int, stderr: str) -> str:
+def _decode_java_error(returncode: int, stderr: str) -> tuple[str, str]:
     cleaned = clean_error_message(stderr, MAX_STDERR_BYTES)
 
     if "OutOfMemoryError" in stderr:
-        return "Memory Limit Exceeded — your program ran out of heap memory."
+        return "Memory Limit Exceeded", "Your program ran out of heap memory."
     if "StackOverflowError" in stderr:
-        return "Runtime Error — stack overflow (infinite recursion?)."
+        return "Runtime Error", "Stack overflow — infinite recursion?"
     if "Exception in thread" in stderr:
-        # Surface the first Exception line — most useful for users
         for line in stderr.splitlines():
             if "Exception" in line or "Error" in line:
-                return clean_error_message(line.strip(), MAX_STDERR_BYTES)
+                return "Runtime Error", clean_error_message(line.strip(), MAX_STDERR_BYTES)
 
     if cleaned:
-        return cleaned
-    return f"Program exited with code {returncode}."
+        return "Runtime Error", cleaned
+    return "Runtime Error", f"Program exited with code {returncode}."

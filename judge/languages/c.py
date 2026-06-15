@@ -2,9 +2,13 @@
 
 import subprocess
 import os
+import sys
 import time
-import resource
 import logging
+
+_IS_LINUX = sys.platform == "linux"
+if _IS_LINUX:
+    import resource
 from judge.limits import (
     TIME_LIMIT_SEC,
     COMPILE_TIME_LIMIT_SEC,
@@ -16,7 +20,7 @@ from judge.limits import (
     MAX_PIDS,
     MAX_COMPILE_OUTPUT_KB,
 )
-from judge.utils import truncate_output, clean_error_message
+from judge.utils import clean_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -27,25 +31,11 @@ BINARY_FILE = "a.out"
 # ─── Security preexec ─────────────────────────────────────────────────────────
 
 def _apply_child_limits():
-    """
-    Applied via preexec_fn — runs inside the child process before exec().
-    Enforces hard resource limits that the kernel will kill on violation.
-    These limits cannot be raised by the child process itself.
-    """
-    # Virtual memory limit (catches malloc bombs)
-    resource.setrlimit(resource.RLIMIT_AS, (MEMORY_LIMIT_BYTES, MEMORY_LIMIT_BYTES))
-
-    # Stack size limit
-    resource.setrlimit(resource.RLIMIT_STACK, (STACK_LIMIT_BYTES, STACK_LIMIT_BYTES))
-
-    # Max file size the process can create (prevents disk bombs)
-    resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_FILE_BYTES, MAX_FILE_BYTES))
-
-    # Max number of child processes (prevents fork bombs)
-    resource.setrlimit(resource.RLIMIT_NPROC, (MAX_PIDS, MAX_PIDS))
-
-    # CPU time limit (backup to wall-clock timeout)
-    resource.setrlimit(resource.RLIMIT_CPU, (TIME_LIMIT_SEC + 1, TIME_LIMIT_SEC + 1))
+    resource.setrlimit(resource.RLIMIT_AS,    (MEMORY_LIMIT_BYTES, MEMORY_LIMIT_BYTES))
+    resource.setrlimit(resource.RLIMIT_STACK, (STACK_LIMIT_BYTES,  STACK_LIMIT_BYTES))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_FILE_BYTES,     MAX_FILE_BYTES))
+    resource.setrlimit(resource.RLIMIT_NPROC, (MAX_PIDS,           MAX_PIDS))
+    resource.setrlimit(resource.RLIMIT_CPU,   (TIME_LIMIT_SEC + 1, TIME_LIMIT_SEC + 1))
 
 
 # ─── Compilation ──────────────────────────────────────────────────────────────
@@ -120,6 +110,10 @@ def run(binary_path: str, input_data: str, workdir: str) -> dict:
     """
     try:
         start_time = time.perf_counter()
+        try:
+            _mem_before = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss if _IS_LINUX else 0
+        except Exception:
+            _mem_before = 0
 
         proc = subprocess.run(
             [binary_path],
@@ -129,17 +123,15 @@ def run(binary_path: str, input_data: str, workdir: str) -> dict:
             timeout=TIME_LIMIT_SEC,
             text=True,
             cwd=workdir,
-            preexec_fn=_apply_child_limits,   # ← kernel-enforced limits
-            env={},                            # ← empty environment (no env leaks)
+            preexec_fn=_apply_child_limits if _IS_LINUX else None,
+            env={},
         )
 
         execution_time_ms = (time.perf_counter() - start_time) * 1000
 
-        # Measure memory from child resource usage
         try:
-            usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-            # ru_maxrss is in KB on Linux
-            memory_used_mb = usage.ru_maxrss / 1024
+            _mem_after = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss if _IS_LINUX else 0
+            memory_used_mb = max(0.0, _mem_after - _mem_before) / 1024
         except Exception:
             memory_used_mb = 0.0
 
@@ -168,7 +160,7 @@ def run(binary_path: str, input_data: str, workdir: str) -> dict:
         return {
             "ok": True,
             "verdict": "Accepted",
-            "output": stdout.strip(),
+            "output": stdout.rstrip("\r\n"),
             "error": None,
             "execution_time_ms": round(execution_time_ms, 2),
             "memory_used_mb": round(max(memory_used_mb, 0.0), 2),
